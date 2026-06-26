@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-import os, shutil
+import os, shutil, urllib.request
 
 # 自动安装中文字体（Linux/Render 环境）
 if os.name != 'nt':
     os.system('apt-get update -qq && apt-get install -y -qq fonts-noto-cjk 2>/dev/null')
+    # 清除 matplotlib 字体缓存，否则新字体不生效
     cache_dir = os.path.expanduser('~/.cache/matplotlib')
     if os.path.exists(cache_dir):
         shutil.rmtree(cache_dir, ignore_errors=True)
@@ -16,7 +17,9 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import io, base64
 
-# 中文字体配置（跨平台）
+# 中文字体配置：重建字体列表
+fm._load_fontmanager(try_read_cache=False)
+
 font_list = ['Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', 'SimHei', 'Microsoft YaHei']
 available = [f.name for f in fm.fontManager.ttflist]
 chosen = None
@@ -24,7 +27,13 @@ for f in font_list:
     if f in available:
         chosen = f
         break
-plt.rcParams['font.sans-serif'] = [chosen, 'DejaVu Sans'] if chosen else ['DejaVu Sans']
+
+if chosen:
+    plt.rcParams['font.sans-serif'] = [chosen, 'DejaVu Sans']
+    plt.rcParams['font.family'] = 'sans-serif'
+else:
+    plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
+
 plt.rcParams['axes.unicode_minus'] = False
 print(f'字体: {chosen or "警告-无中文字体"}')
 
