@@ -1,14 +1,6 @@
 # -*- coding: utf-8 -*-
 import os, shutil, urllib.request
 
-# 自动安装中文字体（Linux/Render 环境）
-if os.name != 'nt':
-    os.system('apt-get update -qq && apt-get install -y -qq fonts-noto-cjk 2>/dev/null')
-    # 清除 matplotlib 字体缓存，否则新字体不生效
-    cache_dir = os.path.expanduser('~/.cache/matplotlib')
-    if os.path.exists(cache_dir):
-        shutil.rmtree(cache_dir, ignore_errors=True)
-
 from flask import Flask, jsonify
 import pandas as pd
 import matplotlib
@@ -17,25 +9,30 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import io, base64
 
-# 中文字体配置：重建字体列表
-fm._load_fontmanager(try_read_cache=False)
+# === 中文字体：直接下载字体文件，不依赖系统字体 ===
+FONT_PATH = os.path.join(os.path.dirname(__file__), 'NotoSansSC.ttf')
+FONT_URL = 'https://github.com/google/fonts/raw/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf'
 
-font_list = ['Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', 'SimHei', 'Microsoft YaHei']
-available = [f.name for f in fm.fontManager.ttflist]
-chosen = None
-for f in font_list:
-    if f in available:
-        chosen = f
-        break
+if not os.path.exists(FONT_PATH):
+    print('下载中文字体文件...')
+    try:
+        urllib.request.urlretrieve(FONT_URL, FONT_PATH)
+        print('字体下载成功')
+    except:
+        print('字体下载失败，尝试系统字体')
 
-if chosen:
-    plt.rcParams['font.sans-serif'] = [chosen, 'DejaVu Sans']
+if os.path.exists(FONT_PATH):
+    fm.fontManager.addfont(FONT_PATH)
+    font_prop = fm.FontProperties(fname=FONT_PATH)
+    font_name = font_prop.get_name()
+    plt.rcParams['font.sans-serif'] = [font_name, 'DejaVu Sans']
     plt.rcParams['font.family'] = 'sans-serif'
+    print(f'使用字体: {font_name}')
 else:
     plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
+    print('警告：无中文字体')
 
 plt.rcParams['axes.unicode_minus'] = False
-print(f'字体: {chosen or "警告-无中文字体"}')
 
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
