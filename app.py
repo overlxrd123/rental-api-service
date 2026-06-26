@@ -1,44 +1,52 @@
-"""
-数据分析 API 服务
-用 Flask 把 Pandas 分析能力变成网页接口
-"""
-from flask import Flask, jsonify, render_template_string
+# -*- coding: utf-8 -*-
+import os, shutil
+
+# 自动安装中文字体（Linux/Render 环境）
+if os.name != 'nt':
+    os.system('apt-get update -qq && apt-get install -y -qq fonts-noto-cjk 2>/dev/null')
+    cache_dir = os.path.expanduser('~/.cache/matplotlib')
+    if os.path.exists(cache_dir):
+        shutil.rmtree(cache_dir, ignore_errors=True)
+
+from flask import Flask, jsonify
 import pandas as pd
 import matplotlib
-matplotlib.use('Agg')  # 不用弹窗，直接保存图片
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import io
-import base64
+import matplotlib.font_manager as fm
+import io, base64
+
+# 中文字体配置（跨平台）
+font_list = ['Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', 'SimHei', 'Microsoft YaHei']
+available = [f.name for f in fm.fontManager.ttflist]
+chosen = None
+for f in font_list:
+    if f in available:
+        chosen = f
+        break
+plt.rcParams['font.sans-serif'] = [chosen, 'DejaVu Sans'] if chosen else ['DejaVu Sans']
+plt.rcParams['axes.unicode_minus'] = False
+print(f'字体: {chosen or "警告-无中文字体"}')
 
 app = Flask(__name__)
-app.config["JSON_AS_ASCII"] = False
+app.config['JSON_AS_ASCII'] = False
 
-# 启动时加载数据
-df = pd.read_csv('lianjia_bj_rent.csv', encoding='gbk')
-print(f"数据加载完成，共 {len(df)} 条房源")
+try:
+    df = pd.read_csv('lianjia_bj_rent.csv', encoding='gbk')
+except:
+    df = pd.read_csv('lianjia_bj_rent.csv', encoding='utf-8')
+print(f'数据加载完成，共 {len(df)} 条房源')
 
-# ===== 路由 1：首页 =====
 @app.route('/')
 def home():
-    return '''
-    <h1>🏠 北京租房数据分析 API</h1>
-    <p>数据来源：链家实时爬取</p>
-    <ul>
-        <li><a href="/api/avg_price">/api/avg_price</a> — 各区平均租金</li>
-        <li><a href="/api/stats">/api/stats</a> — 整体统计</li>
-        <li>/api/district/海淀 — 查看某个区的房源</li>
-        <li><a href="/chart">/chart</a> — 租金分布图</li>
-    </ul>
-    '''
+    return '<!DOCTYPE html>\n<html lang="zh-CN">\n<head><meta charset="utf-8"><title>北京租房数据分析 API</title></head>\n<body>\n<h1>北京租房数据分析 API</h1>\n<p>数据来源：链家实时爬取</p>\n<ul>\n<li><a href="/api/avg_price">/api/avg_price</a> — 各区平均租金（JSON）</li>\n<li><a href="/api/stats">/api/stats</a> — 整体统计（JSON）</li>\n<li>/api/district/海淀 — 查看某个区的房源</li>\n<li><a href="/chart">/chart</a> — 租金分布图表</li>\n</ul>\n</body></html>'
 
-# ===== 路由 2：各区平均租金（JSON API）=====
 @app.route('/api/avg_price')
 def avg_price():
     result = df.groupby('区')['价格_元'].agg(['count', 'mean', 'min', 'max']).round(1)
     result.columns = ['房源数', '均价', '最低', '最高']
     return jsonify(result.to_dict(orient='index'))
 
-# ===== 路由 3：整体统计 =====
 @app.route('/api/stats')
 def stats():
     return jsonify({
@@ -49,42 +57,32 @@ def stats():
         '最便宜区域': df.groupby('区')['价格_元'].mean().idxmin()
     })
 
-# ===== 路由 4：查某个区（动态路由）=====
 @app.route('/api/district/<name>')
 def district(name):
     data = df[df['区'] == name]
     if len(data) == 0:
-        return jsonify({'error': f'没有找到"{name}"的数据'}), 404
+        return jsonify({'error': 'no data'}), 404
     return jsonify(data[['价格_元', '面积', '户型', '描述']].head(20).to_dict(orient='records'))
 
-# ===== 路由 5：生成图表 =====
 @app.route('/chart')
 def chart():
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-    # 各区均价柱状图
     d_price = df.groupby('区')['价格_元'].mean().round(0).sort_values(ascending=False).head(8)
     axes[0].barh(d_price.index[::-1], d_price.values[::-1], color='#2b5c9e')
-    axes[0].set_title('北京各区平均租金')
+    axes[0].set_title('各区平均租金')
     axes[0].set_xlabel('元/月')
-
-    # 租金分布直方图
     axes[1].hist(df['价格_元'], bins=20, color='#DD8452', edgecolor='white')
     axes[1].set_title('租金分布')
-    axes[1].set_xlabel('月租金（元）')
+    axes[1].set_xlabel('月租金')
     axes[1].set_ylabel('房源数')
-
     plt.tight_layout()
-
-    # 图片转 base64，直接嵌入网页
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=100)
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
     buf.seek(0)
-    img_base64 = base64.b64encode(buf.read()).decode()
+    img = base64.b64encode(buf.read()).decode()
     buf.close()
+    plt.close()
+    return '<!DOCTYPE html>\n<html lang="zh-CN">\n<head><meta charset="utf-8"><title>图表</title></head>\n<body>\n<h2>北京租房分析图表</h2>\n<img src="data:image/png;base64,' + img + '">\n</body></html>'
 
-    return f'<h2>北京租房数据分析图表</h2><img src="data:image/png;base64,{img_base64}">'
-
-# ===== 启动 =====
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
