@@ -30,6 +30,7 @@ print(f'字体: {chosen or "警告-无中文字体"}')
 
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
+app.json.ensure_ascii = False  # 新版 Flask 双重保险
 
 try:
     df = pd.read_csv('lianjia_bj_rent.csv', encoding='gbk')
